@@ -1,4 +1,6 @@
+#include <Arduino.h>
 /*
+   v1.0
    Servidor
    WEMOS D1
    /dev/ttyUSB1
@@ -6,11 +8,12 @@
 */
 
 #include <ESP8266WiFi.h>
-#include <WiFiServer.h> 
+#include <WiFiServer.h>
 #include <SSD1306Wire.h>
 
-#define DISPLAY_TITLE "Server v0.0.0.1"
-
+#define DISPLAY_TITLE "Server v1.0"
+#define PEOPLE_MAX 10
+//#define PEOPLE_MAX 1000
 const char* ssid     = "NodeMCU_AP";
 const char* password = "pa$$word";
 
@@ -23,6 +26,7 @@ void wifiSetup();
 void writeLineDisplay(int pixelBeginX, int line, String text);
 void setupDisplay();
 
+int peopleCount = 0;
 void setup() {
   Serial.begin(115200);
   Serial.println("\nIniciando...");
@@ -33,6 +37,7 @@ void setup() {
 uint32_t verificador = 0;
 
 void loop() {
+  writeLineDisplay(0, 1, String(peopleCount));
   tcp();//Funçao que gerencia os pacotes e clientes TCP.
 }
 
@@ -48,17 +53,36 @@ void tcp() {
     //Verifica se o cliente conectado tem dados para serem lidos.
     if (_client.available() > 0) {
       String msg_received = "";
+
       //Armazena cada Byte (letra/char) na String para formar a mensagem recebida.
       while (_client.available() > 0) {
         char character = _client.read();
         msg_received += character;
       }
+      int msg1 = (msg_received.substring(0,1)).toInt();
+      String msg2 = msg_received.substring(1);
       //Mostra a mensagem recebida do cliente no Serial Monitor.
-      Serial.print("\n...Mensagem do cliente: " + msg_received + "");
-      //Envia uma resposta para o cliente
-      _client.println(">> O servidor recebeu sua mensagem: " + msg_received);
-      writeLineDisplay(0, 1, msg_received);
-      
+      Serial.print("\n...Mensagem do cliente: |" + msg_received + "|");
+      if (msg2.substring(1) == "1") {
+        int msgToInt =  msg2.toInt();
+        if((peopleCount + msgToInt) > 0 && (peopleCount + msgToInt) <= PEOPLE_MAX){
+          peopleCount += msgToInt;
+          _client.println("pass");
+        }
+        else if(peopleCount == 0){
+          _client.println("empty");
+        }
+        else if((peopleCount + msgToInt) == 0){
+          peopleCount += msgToInt;
+          _client.println("empty");
+        }
+        else
+          _client.println("full");
+      }
+      else{
+        _client.println("error");
+      }
+      writeLineDisplay(0, msg1 + 2, msg2);
     }
   }
   //Se nao houver cliente conectado,
@@ -68,16 +92,16 @@ void tcp() {
   }
 }
 
-void writeLineDisplay(int pixelBeginX, int line, String text){
+void writeLineDisplay(int pixelBeginX, int line, String text) {
   display.setColor(BLACK);
-  uint8_t pixelY = (line * 10) + (6-line);
-  display.fillRect(pixelBeginX, pixelY+3, 128, 9);//coluna, linha, largura, altura
+  uint8_t pixelY = (line * 10) + (6 - line);
+  display.fillRect(pixelBeginX, pixelY + 3, 128, 9); //coluna, linha, largura, altura
   display.setColor(WHITE);
   display.drawString(pixelBeginX, pixelY, text);
   display.display();
 }
 
-void setupDisplay(){
+void setupDisplay() {
   display.init();
   display.flipScreenVertically();
   //Apaga o display
@@ -87,7 +111,7 @@ void setupDisplay(){
   display.setFont(ArialMT_Plain_16);
   display.drawString(0, 0, DISPLAY_TITLE);
   display.setFont(ArialMT_Plain_10);
-  for(uint8_t i = 1; i<6; i++)
+  for (uint8_t i = 1; i < 6; i++)
     writeLineDisplay(0, i, String(i));
   display.display();
 }
