@@ -1,11 +1,12 @@
 #include <Arduino.h>
 /*
-   v1.0
+   v1.1
    Cliente
    ESP32
    /dev/ttyUSB0
    /COM4
 */
+
 /*
    CHECK é o botão que simula o gatilho para checar se a catraca pode ou não ser liberada
    TICKET_GATE simula a catraca sendo girada para dentro (uma pessoa entrou)
@@ -43,32 +44,17 @@ void pinsSetup();
 void wifiSetup();
 bool sendPayload(String message);
 void setLedColor(int ledId, bool ledState);
-void openTicketGate(int tGateID) {
-  if (sendPayload(String(tGateID) + "+1")) {
-    setLedColor(tGateID, 1);
-    tGate[tGateID].timeout = millis();
-  }
-}
-void closeTicketGate(int tGateID) {
-  setLedColor(tGateID, 0);
-}
-void timeoutCloseTicketGate(int tGateID) {
-  if (tGate[tGateID].state == 1) { //Se estiver aberto
-    if ((millis() - tGate[tGateID].timeout) > TICKET_GATE_TIMEOUT) {
-      setLedColor(tGateID, 0);
-      sendPayload(String(tGateID) + "-1");//avisar o servidor que o portão não foi usado (adiciona 1 vaga livre)
-    }
-  }
-}
-void exitTicketGate(int tGateID) {
-  sendPayload(String(tGateID) + "-1");//avisar o servidor que uma pessoa saiu (adiciona 1 vaga livre)
-}
+void openTicketGate(int tGateID);
+void closeTicketGate(int tGateID);
+void timeoutCloseTicketGate(int tGateID);
+void exitTicketGate(int tGateID);
+
 void setup() {
   Serial.begin(115200);
   Serial.println("Iniciando...");
   pinsSetup();
   wifiSetup();//Estabelece conexão com o AP
-  sendPayload("First!");//Envia a primeira mensagem para o servidor
+  sendPayload("Conectado");//Envia a primeira mensagem para o servidor
   tGate[0].timeout = 0;
 }
 
@@ -137,7 +123,7 @@ void wifiSetup() {
     delay(500);
     Serial.print(".");
   }
-  Serial.println(F("WiFi conectado"));
+  Serial.println(F("Wifi conectado"));
   Serial.println(F("endereço IP: "));
   Serial.println(WiFi.localIP());
 }
@@ -187,4 +173,25 @@ void setLedColor(int ledId, bool ledState) {
   tGate[ledId].state = ledState;
   digitalWrite(tGate[ledId].PIN_LED_GREEN, !ledState);
   digitalWrite(tGate[ledId].PIN_LED_RED, ledState);
+}
+
+void openTicketGate(int tGateID) {
+  if (sendPayload(String(tGateID) + "+1")) {
+    setLedColor(tGateID, 1);
+    tGate[tGateID].timeout = millis();
+  }
+}
+void closeTicketGate(int tGateID) {
+  setLedColor(tGateID, 0);
+}
+void timeoutCloseTicketGate(int tGateID) {
+  if (tGate[tGateID].state == 1) { //Se estiver aberto
+    if ((millis() - tGate[tGateID].timeout) > TICKET_GATE_TIMEOUT) {
+      setLedColor(tGateID, 0);
+      sendPayload(String(tGateID) + "-1");//avisar o servidor que o portão não foi usado (adiciona 1 vaga livre)
+    }
+  }
+}
+void exitTicketGate(int tGateID) {
+  sendPayload(String(tGateID) + "-1");//avisar o servidor que uma pessoa saiu (adiciona 1 vaga livre)
 }
