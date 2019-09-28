@@ -48,6 +48,7 @@ void openTicketGate(int tGateID);
 void closeTicketGate(int tGateID);
 void timeoutCloseTicketGate(int tGateID);
 void exitTicketGate(int tGateID);
+void piscaLed();
 
 void setup() {
   Serial.begin(115200);
@@ -70,7 +71,7 @@ void loop() {
       if (buttonState) {
         delayButtonCheck[i] = millis();
         if (buttonState != tGate[i].checkState) { //Se o botão de CHECK for pressionado, executar esse bloco
-          if(!tGate[i].state)
+          if (!tGate[i].state)
             openTicketGate(i);
         }
         tGate[i].checkState = true;
@@ -112,6 +113,7 @@ void pinsSetup() {
     pinMode(tGate[i].PIN_LED_GREEN, OUTPUT);
     pinMode(tGate[i].PIN_LED_RED, OUTPUT);
   }
+  pinMode(LED_BUILTIN, OUTPUT);
 }
 
 void wifiSetup() {
@@ -121,14 +123,18 @@ void wifiSetup() {
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
+    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
     Serial.print(".");
   }
+
+  digitalWrite(LED_BUILTIN, LOW);
   Serial.println(F("Wifi conectado"));
   Serial.println(F("endereço IP: "));
   Serial.println(WiFi.localIP());
 }
 
 bool sendPayload(String message) {
+  piscaLed();
   String serverResponse = "";
   if (message == "")
     return false;
@@ -164,8 +170,8 @@ bool sendPayload(String message) {
   _client.stop();
   if (serverResponse == "pass")
     return true;
-//  else if(serverResponse == "full" || serverResponse == "error")
-//    return false;
+  //  else if(serverResponse == "full" || serverResponse == "error")
+  //    return false;
   return false;
 }
 
@@ -181,9 +187,11 @@ void openTicketGate(int tGateID) {
     tGate[tGateID].timeout = millis();
   }
 }
+
 void closeTicketGate(int tGateID) {
   setLedColor(tGateID, 0);
 }
+
 void timeoutCloseTicketGate(int tGateID) {
   if (tGate[tGateID].state == 1) { //Se estiver aberto
     if ((millis() - tGate[tGateID].timeout) > TICKET_GATE_TIMEOUT) {
@@ -192,6 +200,13 @@ void timeoutCloseTicketGate(int tGateID) {
     }
   }
 }
+
 void exitTicketGate(int tGateID) {
   sendPayload(String(tGateID) + "-1");//avisar o servidor que uma pessoa saiu (adiciona 1 vaga livre)
+}
+
+void piscaLed() {
+  digitalWrite(LED_BUILTIN, HIGH);
+  delay(1);
+  digitalWrite(LED_BUILTIN, LOW);
 }
