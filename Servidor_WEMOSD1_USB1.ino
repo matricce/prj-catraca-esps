@@ -23,20 +23,19 @@ WiFiServer _server(555);//Cria o objeto servidor na porta 555
 WiFiClient _clients[MAX_CLIENTS];//Cria o objeto cliente.
 
 void tcp();
-void tcp2();
 void wifiSetup();
 void writeLineDisplay(int pixelBeginX, int line, String text);
 void setupDisplay();
+void piscaLed();
 
 int peopleCount = 0;
 void setup() {
   Serial.begin(115200);
   Serial.println("\nIniciando...");
+  pinMode(LED_BUILTIN, OUTPUT);
   wifiSetup();
   setupDisplay();
 }
-
-uint32_t verificador = 0;
 
 void loop() {
   writeLineDisplay(0, 1, String(peopleCount));
@@ -67,6 +66,7 @@ void tcp() {
   for (int i = 0; i < MAX_CLIENTS; i++) {
     //Detecta se há clientes conectados no servidor.
     if (_clients[i] && _clients[i].connected()) {
+      piscaLed();
       //Verifica se o cliente conectado tem dados para serem lidos.
       if (_clients[i].available() > 0) {
         String msg_received = "";
@@ -97,9 +97,9 @@ void tcp() {
             _clients[i].println("full");
           writeLineDisplay(0, msg1 + 2, msg2);
         }
-        else if(msg_received == "Conectado")
+        else if (msg_received == "Conectado")
           _clients[i].println("Cliente conectado");
-        else if(msg1 == 4)
+        else if (msg1 == 4)
           _clients[i].println("Pessoas dentro do local: " + String(peopleCount) + "/" + PEOPLE_MAX);
         else
           _clients[i].println("error");
@@ -128,4 +128,10 @@ void setupDisplay() {
   display.drawString(0, 0, DISPLAY_TITLE);
   display.setFont(ArialMT_Plain_10);
   display.display();
+}
+
+void piscaLed() {
+  digitalWrite(LED_BUILTIN, LOW);
+  delay(1);
+  digitalWrite(LED_BUILTIN, HIGH);
 }
