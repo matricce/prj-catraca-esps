@@ -1,6 +1,6 @@
 #include <Arduino.h>
 /*
-   v1.1
+   v1.1.0.1
    Servidor
    WEMOS D1
    /dev/ttyUSB1
@@ -26,7 +26,7 @@ void tcp();
 void wifiSetup();
 void writeLineDisplay(int pixelBeginX, int line, String text);
 void setupDisplay();
-void piscaLed();
+void ledBlink();
 
 int peopleCount = 0;
 void setup() {
@@ -66,7 +66,7 @@ void tcp() {
   for (int i = 0; i < MAX_CLIENTS; i++) {
     //Detecta se há clientes conectados no servidor.
     if (_clients[i] && _clients[i].connected()) {
-      piscaLed();
+      ledBlink();
       //Verifica se o cliente conectado tem dados para serem lidos.
       if (_clients[i].available() > 0) {
         String msg_received = "";
@@ -99,10 +99,19 @@ void tcp() {
         }
         else if (msg_received == "Conectado")
           _clients[i].println("Cliente conectado");
-        else if (msg1 == 4)
-          _clients[i].println("Pessoas dentro do local: " + String(peopleCount) + "/" + PEOPLE_MAX);
+//        else if (msg1 == 4)
+//          _clients[i].println("Pessoas dentro do local: " + String(peopleCount) + "/" + PEOPLE_MAX);
         else
           _clients[i].println("error");
+        for(int j = 0; j < MAX_CLIENTS; j++){
+          _clients[j].print("IP: ");
+          _clients[j].println(_clients[i].remoteIP());
+          _clients[j].print("Porta: ");
+          _clients[j].println(_clients[i].remotePort());
+          _clients[j].print("Pessoas: ");
+          _clients[j].println(String(peopleCount) + "/" + String(PEOPLE_MAX));
+        }
+        _clients[i].println("OK");
       }
     }
   }
@@ -120,17 +129,15 @@ void writeLineDisplay(int pixelBeginX, int line, String text) {
 void setupDisplay() {
   display.init();
   display.flipScreenVertically();
-  //Apaga o display
   display.clear();
   display.setTextAlignment(TEXT_ALIGN_LEFT);
-  //Seleciona a fonte
   display.setFont(ArialMT_Plain_16);
   display.drawString(0, 0, DISPLAY_TITLE);
   display.setFont(ArialMT_Plain_10);
   display.display();
 }
 
-void piscaLed() {
+void ledBlink() {
   digitalWrite(LED_BUILTIN, LOW);
   delay(1);
   digitalWrite(LED_BUILTIN, HIGH);

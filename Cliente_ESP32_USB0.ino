@@ -1,137 +1,217 @@
 #include <Arduino.h>
 /*
-   v1.1
-   Servidor
-   WEMOS D1
-   /dev/ttyUSB1
-   COM10
+   v1.1.0.1
+   Cliente
+   ESP32
+   /dev/ttyUSB0
+   /COM4
 */
 
-#include <ESP8266WiFi.h>
-#include <WiFiServer.h>
-#include <SSD1306Wire.h>
+/*
+   CHECK é o botão que simula o gatilho para checar se a catraca pode ou não ser liberada
+   TICKET_GATE simula a catraca sendo girada para dentro (uma pessoa entrou)
+   EXIT simula a catraca sendo girada para fora (uma pessoa saiu)
+*/
+#include <WiFi.h>
+#define DEBOUNCE_INTERVAL 200 //intervalo em milissegundos em que o botão pode ser pressionado novamente
+#define TICKET_GATE_TIMEOUT 5000 //tempo no qual a catraca fica liberada após ser aberta
+#define GREEN 1
+#define RED 0
+struct TicketGate {
+  const uint8_t PIN_BTN_CHECK;
+  const uint8_t PIN_BTN_TICKET_GATE;
+  const uint8_t PIN_EXIT;
+  const uint8_t PIN_LED_GREEN;
+  const uint8_t PIN_LED_RED;
+  bool checkState;
+  bool ticketGateState;
+  bool exitState;
+  int timeout;
+  bool state;
+};
 
-#define DISPLAY_TITLE "Server v1.1"
-#define MAX_CLIENTS 3
-#define PEOPLE_MAX 10
-//#define PEOPLE_MAX 1000
+TicketGate tGate[] = {
+  {15, 22, 35, 4, 16},
+  {13, 21, 34, 14, 27},
+  {26, 25, 39, 33, 32},
+  {17, 5, 36, 18, 19}
+};
 const char* ssid     = "NodeMCU_AP";
 const char* password = "pa$$word";
 
-SSD1306Wire  display(0x3c, D2, D1);
-WiFiServer _server(555);//Cria o objeto servidor na porta 555
-WiFiClient _clients[MAX_CLIENTS];//Cria o objeto cliente.
+const char* host = "192.168.4.1";
+const uint16_t port = 555;
 
-void tcp();
+void pinsSetup();
 void wifiSetup();
-void writeLineDisplay(int pixelBeginX, int line, String text);
-void setupDisplay();
-void piscaLed();
+bool sendPayload(String message);
+void setLedColor(int ledId, bool ledState);
+void openTicketGate(int tGateID);
+void closeTicketGate(int tGateID);
+void timeoutCloseTicketGate(int tGateID);
+void exitTicketGate(int tGateID);
+void ledBlink();
+void changeAllLedsToRed() {
+  for (int i = 0; i < 4; i++) {
+    digitalWrite(tGate[i].PIN_LED_GREEN, HIGH);
+    digitalWrite(tGate[i].PIN_LED_RED, LOW);
+  }
+}
 
-int peopleCount = 0;
+
 void setup() {
   Serial.begin(115200);
-  Serial.println("\nIniciando...");
-  pinMode(LED_BUILTIN, OUTPUT);
-  wifiSetup();
-  setupDisplay();
+  Serial.println("Iniciando...");
+  pinsSetup();
+  changeAllLedsToRed();
+  wifiSetup();//Estabelece conexão com o AP
+  sendPayload("Conectado");//Envia a primeira mensagem para o servidor
+  digitalWrite(LED_BUILTIN, LOW);
+  tGate[0].timeout = 0;
 }
 
 void loop() {
-  writeLineDisplay(0, 1, String(peopleCount));
-  tcp();//Funçao que gerencia os pacotes e clientes TCP.
+  bool buttonState;
+  static unsigned long delayButtonCheck[4] = {0, 0, 0, 0};
+  static unsigned long delayButtonTGate[4] = {0, 0, 0, 0};
+  static unsigned long delayButtonExit[4] = {0, 0, 0, 0};
+
+  for (int i = 0; i < 4; i++) {
+    if ((millis() - delayButtonCheck[i]) > DEBOUNCE_INTERVAL) {
+      buttonState = !digitalRead(tGate[i].PIN_BTN_CHECK);/*se o botão estiver pressionado, retorna LOW*/
+      if (buttonState) {
+        delayButtonCheck[i] = millis();
+        if (buttonState != tGate[i].checkState) { //Se o botão de CHECK for pressionado, executar esse bloco
+          if (!tGate[i].state)
+            openTicketGate(i);
+        }
+        tGate[i].checkState = true;
+      }
+      tGate[i].checkState = buttonState;
+    }
+    if ((millis() - delayButtonTGate[i]) > DEBOUNCE_INTERVAL) {
+      buttonState = !digitalRead(tGate[i].PIN_BTN_TICKET_GATE);/*se o botão estiver pressionado, retorna LOW*/
+      if (buttonState) {
+        delayButtonTGate[i] = millis();
+        if (buttonState != tGate[i].ticketGateState) { //Se o botão de TICKET_GATE for pressionado, executar esse bloco
+          closeTicketGate(i);
+        }
+        tGate[i].ticketGateState = true;
+      }
+      tGate[i].ticketGateState = buttonState;
+    }
+    if ((millis() - delayButtonExit[i]) > DEBOUNCE_INTERVAL) {
+      buttonState = digitalRead(tGate[i].PIN_EXIT);/*se o botão estiver pressionado, retorna HIGH*/
+      if (buttonState) {
+        delayButtonExit[i] = millis();
+        if (buttonState != tGate[i].exitState) { //Se o botão de EXIT for pressionado, executar esse bloco
+          exitTicketGate(i);
+        }
+        tGate[i].exitState = true;
+      }
+      tGate[i].exitState = buttonState;
+    }
+    timeoutCloseTicketGate(i);
+  }
+  delay(1);
+}
+
+void pinsSetup() {
+  for (int i = 0; i < 4; i++) {
+    pinMode(tGate[i].PIN_BTN_CHECK, INPUT);
+    pinMode(tGate[i].PIN_BTN_TICKET_GATE, INPUT);
+    pinMode(tGate[i].PIN_EXIT, INPUT);
+    pinMode(tGate[i].PIN_LED_GREEN, OUTPUT);
+    pinMode(tGate[i].PIN_LED_RED, OUTPUT);
+  }
+  pinMode(LED_BUILTIN, OUTPUT);
 }
 
 void wifiSetup() {
-  WiFi.mode(WIFI_AP);//Define o WiFi como Acess_Point.
-  WiFi.softAP(ssid, password);//Cria a rede de Acess_Point.
-  _server.begin();//Inicia o servidor TCP na porta declarada no começo.
+  Serial.print("Conectando ao ");
+  Serial.println(ssid);
+  WiFi.mode(WIFI_STA);//Configura para "station mode" assim não cria uma rede AP, interferindo na comunicação
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
+    Serial.print(".");
+  }
+  Serial.println(F("Wifi conectado"));
+  Serial.println(F("endereço IP: "));
+  Serial.println(WiFi.localIP());
 }
 
-void tcp() {
-  if (_server.hasClient()) {
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-      if (!_clients[i] || !_clients[i].connected()) {
-        if (_clients[i])
-          _clients[i].stop();
-        _clients[i] = _server.available();
-        Serial.print("New Client : ");
-        Serial.print(String(i + 1) + " - ");
-        continue;
-      }
-    }
-    WiFiClient _clients = _server.available();
-    _clients.stop();
+bool sendPayload(String message) {
+  ledBlink();
+  String serverResponse = "";
+  if (message == "")
+    return false;
+  // A classe WiFiClient é utilizada para criar conexões TCP
+  WiFiClient _client;
+  if (!_client.connect(host, port)) {
+    Serial.println(F("<< falha na conexão"));
+    delay(5000);
+    return false;
   }
-  for (int i = 0; i < MAX_CLIENTS; i++) {
-    //Detecta se há clientes conectados no servidor.
-    if (_clients[i] && _clients[i].connected()) {
-      piscaLed();
-      //Verifica se o cliente conectado tem dados para serem lidos.
-      if (_clients[i].available() > 0) {
-        String msg_received = "";
-
-        //Armazena cada Byte (letra/char) na String para formar a mensagem recebida.
-        while (_clients[i].available() > 0) {
-          char character = _clients[i].read();
-          msg_received += character;
-        }
-        int msg1 = (msg_received.substring(0, 1)).toInt();
-        String msg2 = msg_received.substring(1);
-        //Mostra a mensagem recebida do cliente no Serial Monitor.
-        Serial.print("\n...Mensagem do cliente: |" + msg_received + "|");
-        if (msg2.substring(1) == "1") {
-          int msgToInt =  msg2.toInt();
-          if ((peopleCount + msgToInt) > 0 && (peopleCount + msgToInt) <= PEOPLE_MAX) {
-            peopleCount += msgToInt;
-            _clients[i].println("pass");
-          }
-          else if (peopleCount == 0) {
-            _clients[i].println("empty");
-          }
-          else if ((peopleCount + msgToInt) == 0) {
-            peopleCount += msgToInt;
-            _clients[i].println("empty");
-          }
-          else
-            _clients[i].println("full");
-          writeLineDisplay(0, msg1 + 2, msg2);
-        }
-        else if (msg_received == "Conectado")
-          _clients[i].println("Cliente conectado");
-        else if (msg1 == 4)
-          _clients[i].println("Pessoas dentro do local: " + String(peopleCount) + "/" + PEOPLE_MAX);
-        else
-          _clients[i].println("error");
-      }
+  //A mensagem é enviada para o servidor caso haja conexão
+  if (_client.connected()) {
+    _client.print(message);//Somente 1 mensagem por conexão
+  }
+  //aguarda os dados ficarem disponíveis
+  unsigned long timeout = millis();
+  while (_client.available() == 0) {
+    if (millis() - timeout > 5000) {
+      Serial.println(F(">>> Tempo de conexão excedido!"));
+      _client.stop();
+      delay(3000);
+      return false;
     }
   }
+  //Lê todas as linhas da resposta do servidor
+  while (_client.available()) {
+    char character = static_cast<char>(_client.read());
+    serverResponse += character;
+  }
+  Serial.println(serverResponse);
+  _client.stop();
+  if (serverResponse == "pass")
+    return true;
+  return false;
 }
 
-void writeLineDisplay(int pixelBeginX, int line, String text) {
-  display.setColor(BLACK);
-  uint8_t pixelY = (line * 10) + (6 - line);
-  display.fillRect(pixelBeginX, pixelY + 3, 128, 9); //coluna, linha, largura, altura
-  display.setColor(WHITE);
-  display.drawString(pixelBeginX, pixelY, text);
-  display.display();
+void setLedColor(int ledId, bool ledState) {
+  tGate[ledId].state = ledState;
+  digitalWrite(tGate[ledId].PIN_LED_GREEN, !ledState);
+  digitalWrite(tGate[ledId].PIN_LED_RED, ledState);
 }
 
-void setupDisplay() {
-  display.init();
-  display.flipScreenVertically();
-  //Apaga o display
-  display.clear();
-  display.setTextAlignment(TEXT_ALIGN_LEFT);
-  //Seleciona a fonte
-  display.setFont(ArialMT_Plain_16);
-  display.drawString(0, 0, DISPLAY_TITLE);
-  display.setFont(ArialMT_Plain_10);
-  display.display();
+void openTicketGate(int tGateID) {
+  if (sendPayload(String(tGateID) + "+1")) {
+    setLedColor(tGateID, GREEN);
+    tGate[tGateID].timeout = millis();
+  }
 }
 
-void piscaLed() {
-  digitalWrite(LED_BUILTIN, LOW);
-  delay(1);
+void closeTicketGate(int tGateID) {
+  setLedColor(tGateID, RED);
+}
+
+void timeoutCloseTicketGate(int tGateID) {
+  if (tGate[tGateID].state == 1) { //Se estiver aberto
+    if ((millis() - tGate[tGateID].timeout) > TICKET_GATE_TIMEOUT) {
+      setLedColor(tGateID, RED);
+      sendPayload(String(tGateID) + "-1");//avisar o servidor que o portão não foi usado (adiciona 1 vaga livre)
+    }
+  }
+}
+
+void exitTicketGate(int tGateID) {
+  sendPayload(String(tGateID) + "-1");//avisar o servidor que uma pessoa saiu (adiciona 1 vaga livre)
+}
+
+void ledBlink() {
   digitalWrite(LED_BUILTIN, HIGH);
+  delay(1);
+  digitalWrite(LED_BUILTIN, LOW);
 }
