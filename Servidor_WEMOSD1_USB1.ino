@@ -1,6 +1,6 @@
 #include <Arduino.h>
 /*
-   v1.1.0.1
+   v1.1.1.0
    Servidor
    WEMOS D1
    /dev/ttyUSB1
@@ -11,10 +11,16 @@
 #include <WiFiServer.h>
 #include <SSD1306Wire.h>
 
-#define DISPLAY_TITLE "Server v1.1"
+#define DISPLAY_TITLE "Server v1.1.0.3"
 #define MAX_CLIENTS 3
 #define PEOPLE_MAX 10
 //#define PEOPLE_MAX 1000
+const char CONNECTED_SV = 'n';
+const char RESERVE = 'v';
+const char ADD = 'a';
+const char CANCEL_ENTRY = 'c';
+const char REMOVE = 'm';
+
 const char* ssid     = "NodeMCU_AP";
 const char* password = "pa$$word";
 
@@ -29,6 +35,10 @@ void setupDisplay();
 void ledBlink();
 
 int peopleCount = 0;
+int gateCount[4][2] = {{0, 0}, {0, 0}, {0, 0}, {0, 0}};
+int reserved[4] = {0, 0, 0, 0};
+int reserveds = 0;
+
 void setup() {
   Serial.begin(115200);
   Serial.println("\nIniciando...");
@@ -38,7 +48,10 @@ void setup() {
 }
 
 void loop() {
-  writeLineDisplay(0, 1, String(peopleCount));
+  writeLineDisplay(0, 1, String(peopleCount) + " (" + String(reserveds) + ")");
+  for (int i = 0; i < 4; i++) {
+    writeLineDisplay(0, i + 2, String(gateCount[i][0]) + " [ " + String(gateCount[i][1]) + " ]");
+  }
   tcp();//Funçao que gerencia os pacotes e clientes TCP.
 }
 
@@ -70,48 +83,70 @@ void tcp() {
       //Verifica se o cliente conectado tem dados para serem lidos.
       if (_clients[i].available() > 0) {
         String msg_received = "";
-
         //Armazena cada Byte (letra/char) na String para formar a mensagem recebida.
         while (_clients[i].available() > 0) {
           char character = _clients[i].read();
           msg_received += character;
         }
-        int msg1 = (msg_received.substring(0, 1)).toInt();
-        String msg2 = msg_received.substring(1);
+        int gateId = msg_received.charAt(0) - '0';
+        char gatePayload = msg_received.charAt(1);
+        int total = peopleCount + reserveds;
         //Mostra a mensagem recebida do cliente no Serial Monitor.
         Serial.print("\n...Mensagem do cliente: |" + msg_received + "|");
-        if (msg2.substring(1) == "1") {
-          int msgToInt =  msg2.toInt();
-          if ((peopleCount + msgToInt) > 0 && (peopleCount + msgToInt) <= PEOPLE_MAX) {
-            peopleCount += msgToInt;
-            _clients[i].println("pass");
-          }
-          else if (peopleCount == 0) {
-            _clients[i].println("empty");
-          }
-          else if ((peopleCount + msgToInt) == 0) {
-            peopleCount += msgToInt;
-            _clients[i].println("empty");
-          }
-          else
-            _clients[i].println("full");
-          writeLineDisplay(0, msg1 + 2, msg2);
+        switch (gatePayload) {
+          case CONNECTED_SV:
+            _clients[i].println("Cliente conectado");
+            break;
+          case RESERVE:
+            if ((total + 1) > 0 && (total + 1) <= PEOPLE_MAX) {
+              reserved[gateId] = 1;
+              _clients[i].println("release");
+            }
+            else {
+              _clients[i].println("full");
+            }
+            break;
+          case ADD:
+            reserved[gateId] = 0;
+            peopleCount++;
+            gateCount[gateId][0]++;
+            gateCount[gateId][1] = 1;
+            _clients[i].println("added");
+            break;
+          case CANCEL_ENTRY:
+            reserved[gateId] = 0;
+            _clients[i].println("canceled");
+            break;
+          case REMOVE:
+            if (peopleCount == 0)
+              _clients[i].println("empty");
+            else if (peopleCount > 0) {
+              peopleCount--;
+              //if (gateCount[gateId][0] > 0) {
+                gateCount[gateId][0]--;
+              //}
+              gateCount[gateId][1] = -1;
+              _clients[i].println("removed");
+            }
+
+            break;
+          default:
+            _clients[i].println("error");
+
         }
-        else if (msg_received == "Conectado")
-          _clients[i].println("Cliente conectado");
-//        else if (msg1 == 4)
-//          _clients[i].println("Pessoas dentro do local: " + String(peopleCount) + "/" + PEOPLE_MAX);
-        else
-          _clients[i].println("error");
-        for(int j = 0; j < MAX_CLIENTS; j++){
+        for (int j = 0; j < MAX_CLIENTS; j++) {
           _clients[j].print("IP: ");
           _clients[j].println(_clients[i].remoteIP());
           _clients[j].print("Porta: ");
           _clients[j].println(_clients[i].remotePort());
           _clients[j].print("Pessoas: ");
           _clients[j].println(String(peopleCount) + "/" + String(PEOPLE_MAX));
+          for (int i = 0; i < 4; i++) {
+            _clients[j].println(String(gateCount[i][0]) + " [ " + String(gateCount[i][1]) + " ]");
+          }
+
         }
-        _clients[i].println("OK");
+        reserveds = reserved[0] + reserved[1] + reserved[2] + reserved[3];
       }
     }
   }
