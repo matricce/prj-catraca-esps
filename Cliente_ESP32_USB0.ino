@@ -1,6 +1,5 @@
-#include <Arduino.h>
 /*
-   v1.1.0.1
+   v1.1.1.0-
    Cliente
    ESP32
    /dev/ttyUSB0
@@ -17,6 +16,12 @@
 #define TICKET_GATE_TIMEOUT 5000 //tempo no qual a catraca fica liberada após ser aberta
 #define GREEN 1
 #define RED 0
+const char* CONNECTED_CL = "cn";
+const char RESERVE = 'v';
+const char ADD = 'a';
+const char CANCEL_ENTRY = 'c';
+const char REMOVE = 'm';
+
 struct TicketGate {
   const uint8_t PIN_BTN_CHECK;
   const uint8_t PIN_BTN_TICKET_GATE;
@@ -46,18 +51,12 @@ void pinsSetup();
 void wifiSetup();
 bool sendPayload(String message);
 void setLedColor(int ledId, bool ledState);
-void openTicketGate(int tGateID);
-void closeTicketGate(int tGateID);
-void timeoutCloseTicketGate(int tGateID);
+void opTicketGate(int tGateID);
+void confirmTicketGate(int tGateID);
+void timeoutTicketGate(int tGateID);
 void exitTicketGate(int tGateID);
 void ledBlink();
-void changeAllLedsToRed() {
-  for (int i = 0; i < 4; i++) {
-    digitalWrite(tGate[i].PIN_LED_GREEN, HIGH);
-    digitalWrite(tGate[i].PIN_LED_RED, LOW);
-  }
-}
-
+void changeAllLedsToRed();
 
 void setup() {
   Serial.begin(115200);
@@ -65,9 +64,8 @@ void setup() {
   pinsSetup();
   changeAllLedsToRed();
   wifiSetup();//Estabelece conexão com o AP
-  sendPayload("Conectado");//Envia a primeira mensagem para o servidor
+  sendPayload(CONNECTED_CL);//Envia a primeira mensagem para o servidor
   digitalWrite(LED_BUILTIN, LOW);
-  tGate[0].timeout = 0;
 }
 
 void loop() {
@@ -82,8 +80,8 @@ void loop() {
       if (buttonState) {
         delayButtonCheck[i] = millis();
         if (buttonState != tGate[i].checkState) { //Se o botão de CHECK for pressionado, executar esse bloco
-          if (!tGate[i].state)
-            openTicketGate(i);
+          if (tGate[i].state == 0)
+            opTicketGate(i);
         }
         tGate[i].checkState = true;
       }
@@ -94,7 +92,8 @@ void loop() {
       if (buttonState) {
         delayButtonTGate[i] = millis();
         if (buttonState != tGate[i].ticketGateState) { //Se o botão de TICKET_GATE for pressionado, executar esse bloco
-          closeTicketGate(i);
+          if (tGate[i].state == 1)
+            confirmTicketGate(i);
         }
         tGate[i].ticketGateState = true;
       }
@@ -111,7 +110,7 @@ void loop() {
       }
       tGate[i].exitState = buttonState;
     }
-    timeoutCloseTicketGate(i);
+    timeoutTicketGate(i);
   }
   delay(1);
 }
@@ -175,7 +174,7 @@ bool sendPayload(String message) {
   }
   Serial.println(serverResponse);
   _client.stop();
-  if (serverResponse == "pass")
+  if (serverResponse == "release")
     return true;
   return false;
 }
@@ -186,32 +185,41 @@ void setLedColor(int ledId, bool ledState) {
   digitalWrite(tGate[ledId].PIN_LED_RED, ledState);
 }
 
-void openTicketGate(int tGateID) {
-  if (sendPayload(String(tGateID) + "+1")) {
+void opTicketGate(int tGateID) {
+  if (sendPayload(String(tGateID) + RESERVE)) {
     setLedColor(tGateID, GREEN);
     tGate[tGateID].timeout = millis();
   }
 }
 
-void closeTicketGate(int tGateID) {
-  setLedColor(tGateID, RED);
-}
 
-void timeoutCloseTicketGate(int tGateID) {
+void timeoutTicketGate(int tGateID) {
   if (tGate[tGateID].state == 1) { //Se estiver aberto
     if ((millis() - tGate[tGateID].timeout) > TICKET_GATE_TIMEOUT) {
       setLedColor(tGateID, RED);
-      sendPayload(String(tGateID) + "-1");//avisar o servidor que o portão não foi usado (adiciona 1 vaga livre)
+      sendPayload(String(tGateID) + String(CANCEL_ENTRY));//avisar o servidor que o portão não foi usado (adiciona 1 vaga livre)
     }
   }
 }
 
+void confirmTicketGate(int tGateID) {
+  sendPayload(String(tGateID) + ADD);
+  setLedColor(tGateID, RED);
+}
+
 void exitTicketGate(int tGateID) {
-  sendPayload(String(tGateID) + "-1");//avisar o servidor que uma pessoa saiu (adiciona 1 vaga livre)
+  sendPayload(String(tGateID) + REMOVE);//avisar o servidor que uma pessoa saiu (adiciona 1 vaga livre)
 }
 
 void ledBlink() {
   digitalWrite(LED_BUILTIN, HIGH);
   delay(1);
   digitalWrite(LED_BUILTIN, LOW);
+}
+
+void changeAllLedsToRed() {
+  for (int i = 0; i < 4; i++) {
+    digitalWrite(tGate[i].PIN_LED_GREEN, HIGH);
+    digitalWrite(tGate[i].PIN_LED_RED, LOW);
+  }
 }
