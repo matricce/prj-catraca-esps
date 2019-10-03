@@ -1,26 +1,28 @@
+#include <Arduino.h>
 /*
-   v1.1.1.0-
+   v1.1.1.4
    Cliente
    ESP32
    /dev/ttyUSB0
    /COM4
 */
 
-/*
-   CHECK é o botão que simula o gatilho para checar se a catraca pode ou não ser liberada
-   TICKET_GATE simula a catraca sendo girada para dentro (uma pessoa entrou)
-   EXIT simula a catraca sendo girada para fora (uma pessoa saiu)
-*/
 #include <WiFi.h>
 #define DEBOUNCE_INTERVAL 200 //intervalo em milissegundos em que o botão pode ser pressionado novamente
 #define TICKET_GATE_TIMEOUT 5000 //tempo no qual a catraca fica liberada após ser aberta
 #define GREEN 1
 #define RED 0
+#define DELAY_CONNECT 1000
+#define DELAY_TEST_WIFI 200
+#define DELAY_RECONNECT 5000
+
 const char* CONNECTED_CL = "cn";
 const char RESERVE = 'v';
 const char ADD = 'a';
 const char CANCEL_ENTRY = 'c';
 const char REMOVE = 'm';
+
+bool back2Online = false;
 
 struct TicketGate {
   const uint8_t PIN_BTN_CHECK;
@@ -47,8 +49,8 @@ const char* password = "pa$$word";
 const char* host = "192.168.4.1";
 const uint16_t port = 555;
 
-void pinsSetup();
-void wifiSetup();
+void setupPins();
+void setupWifi();
 bool sendPayload(String message);
 void setLedColor(int ledId, bool ledState);
 void opTicketGate(int tGateID);
@@ -56,19 +58,33 @@ void confirmTicketGate(int tGateID);
 void timeoutTicketGate(int tGateID);
 void exitTicketGate(int tGateID);
 void ledBlink();
-void changeAllLedsToRed();
+void changeAllLeds2Red();
+bool testWifiConnection();
+void wifiReconnect();
+void systemOffline();
 
 void setup() {
   Serial.begin(115200);
   Serial.println("Iniciando...");
-  pinsSetup();
-  changeAllLedsToRed();
-  wifiSetup();//Estabelece conexão com o AP
-  sendPayload(CONNECTED_CL);//Envia a primeira mensagem para o servidor
-  digitalWrite(LED_BUILTIN, LOW);
+  setupPins();
+  changeAllLeds2Red();
+  setupWifi();//Estabelece conexão com o AP
+  if (testWifiConnection()) {
+    sendPayload(CONNECTED_CL);//Envia a primeira mensagem para o servidor
+    digitalWrite(LED_BUILTIN, LOW);
+  }
 }
 
 void loop() {
+  while (!testWifiConnection()) {
+    systemOffline();
+    wifiReconnect();
+    back2Online = true;
+  }
+  if (back2Online) {
+    changeAllLeds2Red();
+    back2Online = false;
+  }
   bool buttonState;
   static unsigned long delayButtonCheck[4] = {0, 0, 0, 0};
   static unsigned long delayButtonTGate[4] = {0, 0, 0, 0};
@@ -115,7 +131,7 @@ void loop() {
   delay(1);
 }
 
-void pinsSetup() {
+void setupPins() {
   for (int i = 0; i < 4; i++) {
     pinMode(tGate[i].PIN_BTN_CHECK, INPUT);
     pinMode(tGate[i].PIN_BTN_TICKET_GATE, INPUT);
@@ -126,19 +142,27 @@ void pinsSetup() {
   pinMode(LED_BUILTIN, OUTPUT);
 }
 
-void wifiSetup() {
-  Serial.print("Conectando ao ");
-  Serial.println(ssid);
-  WiFi.mode(WIFI_STA);//Configura para "station mode" assim não cria uma rede AP, interferindo na comunicação
+void setupWifi() {
+  WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
+  Serial.print("Conectando ao Wifi");
+  unsigned long WifiTimeOut = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - WifiTimeOut < DELAY_CONNECT) {
     delay(500);
     digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
     Serial.print(".");
   }
-  Serial.println(F("Wifi conectado"));
-  Serial.println(F("endereço IP: "));
-  Serial.println(WiFi.localIP());
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println();
+    Serial.println(F("Wifi conectado"));
+    Serial.println(F("endereço IP: "));
+    Serial.println(WiFi.localIP());
+  }
+  else {
+    Serial.println();
+    Serial.println("Tempo de conexão WiFi excedido.");
+    testWifiConnection();
+  }
 }
 
 bool sendPayload(String message) {
@@ -192,7 +216,6 @@ void opTicketGate(int tGateID) {
   }
 }
 
-
 void timeoutTicketGate(int tGateID) {
   if (tGate[tGateID].state == 1) { //Se estiver aberto
     if ((millis() - tGate[tGateID].timeout) > TICKET_GATE_TIMEOUT) {
@@ -217,9 +240,42 @@ void ledBlink() {
   digitalWrite(LED_BUILTIN, LOW);
 }
 
-void changeAllLedsToRed() {
+void changeAllLeds2Red() {
   for (int i = 0; i < 4; i++) {
     digitalWrite(tGate[i].PIN_LED_GREEN, HIGH);
     digitalWrite(tGate[i].PIN_LED_RED, LOW);
+  }
+}
+
+bool testWifiConnection() {
+  static unsigned long delayIsConnected = 0;
+  static bool wifiConnected = false;
+  if (millis() - delayIsConnected > DELAY_TEST_WIFI) {
+    if (WiFi.status() == WL_CONNECTED)
+      wifiConnected = true;
+    else
+      wifiConnected = false;
+    delayIsConnected = millis();
+  }
+  return wifiConnected;
+}
+
+void wifiReconnect() {
+  static unsigned long delayReconnect = 0;
+  if (millis() - delayReconnect > DELAY_RECONNECT) {
+    Serial.println(F("Tentando se reconectar ao wifi.."));
+    WiFi.reconnect();
+    delayReconnect = millis();
+  }
+}
+
+void systemOffline() {
+  static unsigned long delayBlink = 0;
+  if (millis() - delayBlink > 500) {
+    for (int i = 0; i < 4; i++) {
+      digitalWrite(tGate[i].PIN_LED_GREEN, HIGH);
+      digitalWrite(tGate[i].PIN_LED_RED, !digitalRead(tGate[i].PIN_LED_RED));
+    }
+    delayBlink = millis();
   }
 }
