@@ -1,6 +1,6 @@
 #include <Arduino.h>
 /*
-   v1.1.1.4
+   v1.1.1.5
    Cliente
    ESP32
    /dev/ttyUSB0
@@ -8,7 +8,7 @@
 */
 
 #include <WiFi.h>
-#define DEBOUNCE_INTERVAL 200 //intervalo em milissegundos em que o botão pode ser pressionado novamente
+#define DEBOUNCE_INTERVAL 100 //intervalo em milissegundos em que o botão pode ser pressionado novamente
 #define TICKET_GATE_TIMEOUT 5000 //tempo no qual a catraca fica liberada após ser aberta
 #define GREEN 1
 #define RED 0
@@ -128,7 +128,7 @@ void loop() {
     }
     timeoutTicketGate(i);
   }
-  delay(1);
+  //delay(1);
 }
 
 void setupPins() {
@@ -198,7 +198,7 @@ bool sendPayload(String message) {
   }
   Serial.println(serverResponse);
   _client.stop();
-  if (serverResponse == "release")
+  if (serverResponse == "release" || serverResponse == "removed")
     return true;
   return false;
 }
