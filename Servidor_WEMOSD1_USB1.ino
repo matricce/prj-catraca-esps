@@ -1,6 +1,6 @@
 #include <Arduino.h>
 /*
-   v1.1.1.0
+   v1.1.1.4
    Servidor
    WEMOS D1
    /dev/ttyUSB1
@@ -11,9 +11,9 @@
 #include <WiFiServer.h>
 #include <SSD1306Wire.h>
 
-#define DISPLAY_TITLE "Server v1.1.0.3"
-#define MAX_CLIENTS 3
-#define PEOPLE_MAX 10
+#define DISPLAY_TITLE "Server v1.1.1.4"
+#define MAX_CLIENTS 8
+#define PEOPLE_MAX 1000
 //#define PEOPLE_MAX 1000
 const char CONNECTED_SV = 'n';
 const char RESERVE = 'v';
@@ -48,9 +48,9 @@ void setup() {
 }
 
 void loop() {
-  writeLineDisplay(0, 1, String(peopleCount) + " (" + String(reserveds) + ")");
+  writeLineDisplay(0, 1, "Pes:" + String(peopleCount) + "/" + String(PEOPLE_MAX) + " Rsv:" + String(reserveds));
   for (int i = 0; i < 4; i++) {
-    writeLineDisplay(0, i + 2, String(gateCount[i][0]) + " [ " + String(gateCount[i][1]) + " ]");
+    writeLineDisplay(0, i + 2, "pes: " + String(gateCount[i][0]) + " - std: " + String(gateCount[i][1]) + " - rsv: " + String(reserved[i]));
   }
   tcp();//Funçao que gerencia os pacotes e clientes TCP.
 }
@@ -123,7 +123,7 @@ void tcp() {
             else if (peopleCount > 0) {
               peopleCount--;
               //if (gateCount[gateId][0] > 0) {
-                gateCount[gateId][0]--;
+              gateCount[gateId][0]--;
               //}
               gateCount[gateId][1] = -1;
               _clients[i].println("removed");
@@ -139,10 +139,10 @@ void tcp() {
           _clients[j].println(_clients[i].remoteIP());
           _clients[j].print("Porta: ");
           _clients[j].println(_clients[i].remotePort());
-          _clients[j].print("Pessoas: ");
-          _clients[j].println(String(peopleCount) + "/" + String(PEOPLE_MAX));
+          _clients[j].println(DISPLAY_TITLE);
+          _clients[j].println("Pessoas:" + String(peopleCount) + "/" + String(PEOPLE_MAX) + " reservados:" + String(reserveds));
           for (int i = 0; i < 4; i++) {
-            _clients[j].println(String(gateCount[i][0]) + " [ " + String(gateCount[i][1]) + " ]");
+            _clients[j].println("pessoas: " + String(gateCount[i][0]) + " - sentido: " + String(gateCount[i][1]) + " - reservado: " + String(reserved[i]));
           }
 
         }
