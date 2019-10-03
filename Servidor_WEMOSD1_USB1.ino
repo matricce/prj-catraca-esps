@@ -1,6 +1,6 @@
 #include <Arduino.h>
 /*
-   v1.1.1.4
+   v1.1.1.5
    Servidor
    WEMOS D1
    /dev/ttyUSB1
@@ -11,10 +11,8 @@
 #include <WiFiServer.h>
 #include <SSD1306Wire.h>
 
-#define DISPLAY_TITLE "Server v1.1.1.4"
+#define DISPLAY_TITLE "Server v1.1.1.5"
 #define MAX_CLIENTS 8
-#define PEOPLE_MAX 1000
-//#define PEOPLE_MAX 1000
 const char CONNECTED_SV = 'n';
 const char RESERVE = 'v';
 const char ADD = 'a';
@@ -24,15 +22,19 @@ const char REMOVE = 'm';
 const char* ssid     = "NodeMCU_AP";
 const char* password = "pa$$word";
 
+int PEOPLE_MAX = 0;
+
 SSD1306Wire  display(0x3c, D2, D1);
 WiFiServer _server(555);//Cria o objeto servidor na porta 555
 WiFiClient _clients[MAX_CLIENTS];//Cria o objeto cliente.
 
-void tcp();
-void wifiSetup();
-void writeLineDisplay(int pixelBeginX, int line, String text);
+void pinSetup();
+void setupWifi();
 void setupDisplay();
+void peopleMaxSet();
+void writeLineDisplay(int pixelBeginX, int line, String text);
 void ledBlink();
+void tcp();
 
 int peopleCount = 0;
 int gateCount[4][2] = {{0, 0}, {0, 0}, {0, 0}, {0, 0}};
@@ -42,8 +44,9 @@ int reserveds = 0;
 void setup() {
   Serial.begin(115200);
   Serial.println("\nIniciando...");
-  pinMode(LED_BUILTIN, OUTPUT);
-  wifiSetup();
+  setupPins();
+  peopleMaxSet();
+  setupWifi();
   setupDisplay();
 }
 
@@ -55,10 +58,53 @@ void loop() {
   tcp();//Funçao que gerencia os pacotes e clientes TCP.
 }
 
-void wifiSetup() {
+void setupWifi() {
   WiFi.mode(WIFI_AP);//Define o WiFi como Acess_Point.
   WiFi.softAP(ssid, password);//Cria a rede de Acess_Point.
   _server.begin();//Inicia o servidor TCP na porta declarada no começo.
+}
+
+void setupPins() {
+  pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(14, INPUT_PULLUP);
+  pinMode(12, INPUT_PULLUP);
+}
+
+void peopleMaxSet(){
+  bool readPin1 = digitalRead(14);
+  bool readPin2 = digitalRead(12);
+ if(!readPin1 && !readPin2)
+   PEOPLE_MAX = 1000;
+ else if(readPin1 && readPin2)
+   PEOPLE_MAX = 10;
+ else
+   PEOPLE_MAX = 100;
+}
+
+void setupDisplay() {
+  display.init();
+  display.flipScreenVertically();
+  display.clear();
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
+  display.setFont(ArialMT_Plain_16);
+  display.drawString(0, 0, DISPLAY_TITLE);
+  display.setFont(ArialMT_Plain_10);
+  display.display();
+}
+
+void ledBlink() {
+  digitalWrite(LED_BUILTIN, LOW);
+  delay(1);
+  digitalWrite(LED_BUILTIN, HIGH);
+}
+
+void writeLineDisplay(int pixelBeginX, int line, String text) {
+  display.setColor(BLACK);
+  uint8_t pixelY = (line * 10) + (6 - line);
+  display.fillRect(pixelBeginX, pixelY + 3, 128, 9); //coluna, linha, largura, altura
+  display.setColor(WHITE);
+  display.drawString(pixelBeginX, pixelY, text);
+  display.display();
 }
 
 void tcp() {
@@ -68,8 +114,8 @@ void tcp() {
         if (_clients[i])
           _clients[i].stop();
         _clients[i] = _server.available();
-        Serial.print("New Client : ");
-        Serial.print(String(i + 1) + " - ");
+//        Serial.print("New Client : ");
+//        Serial.print(String(i + 1) + " - ");
         continue;
       }
     }
@@ -150,30 +196,4 @@ void tcp() {
       }
     }
   }
-}
-
-void writeLineDisplay(int pixelBeginX, int line, String text) {
-  display.setColor(BLACK);
-  uint8_t pixelY = (line * 10) + (6 - line);
-  display.fillRect(pixelBeginX, pixelY + 3, 128, 9); //coluna, linha, largura, altura
-  display.setColor(WHITE);
-  display.drawString(pixelBeginX, pixelY, text);
-  display.display();
-}
-
-void setupDisplay() {
-  display.init();
-  display.flipScreenVertically();
-  display.clear();
-  display.setTextAlignment(TEXT_ALIGN_LEFT);
-  display.setFont(ArialMT_Plain_16);
-  display.drawString(0, 0, DISPLAY_TITLE);
-  display.setFont(ArialMT_Plain_10);
-  display.display();
-}
-
-void ledBlink() {
-  digitalWrite(LED_BUILTIN, LOW);
-  delay(1);
-  digitalWrite(LED_BUILTIN, HIGH);
 }
